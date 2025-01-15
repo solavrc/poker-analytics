@@ -1,0 +1,41 @@
+{
+  "name": "Python 3",
+  "image": "mcr.microsoft.com/devcontainers/python:0-3.10-bullseye",
+  "features": {
+    "ghcr.io/devcontainers-contrib/features/black:1": {},
+    "ghcr.io/devcontainers-contrib/features/meltano": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/eitsupi/devcontainer-features/duckdb-cli:1": {},
+    "ghcr.io/eitsupi/devcontainer-features/go-task:1": {}
+  },
+  // Use 'postCreateCommand' to run commands after the container is created.
+  "postCreateCommand": "task deps",
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "python.analysis.typeCheckingMode": "basic",
+        "sqlfluff.experimental.format.executeInTerminal": true,
+        "[jinja-sql]": {
+          "editor.defaultFormatter": "innoverio.vscode-dbt-power-user",
+          "editor.formatOnSave": false
+        },
+        "dbt.enableNewLineagePanel": true
+      },
+      "extensions": [
+        "dorzey.vscode-sqlfluff",
+        "esbenp.prettier-vscode",
+        "innoverio.vscode-dbt-power-user",
+        "snowflake.snowflake-vsc"
+      ]
+    }
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.dbt,target=/home/vscode/.dbt,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+  ]
+}
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python

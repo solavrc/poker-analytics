@@ -1,0 +1,9 @@
+.DS_Store
+.env
+.vscode/
+dbt_packages/
+logs/
+package-lock.yml
+profiles.yml
+.user.yml
+target/
