@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: int_player_actions
+    description: プレイヤーのアクション分析データ (VPIP、PFR、3Bet、スタック指標など)
+    columns:
+      - name: hand_id
+        description: ハンドID
+        tests:
+          - not_null
+      - name: player_id
+        description: プレイヤーID
+        tests:
+          - not_null
+      - name: phase_name
+        description: フェーズ名 (PREFLOP, FLOP, TURN, RIVER)
+        tests:
+          - not_null
+          - accepted_values:
+              values: [PREFLOP, FLOP, TURN, RIVER]
+      - name: is_vpip
+        description: VPIPフラグ
+        tests:
+          - not_null
+      - name: is_pfr
+        description: PFRフラグ
+        tests:
+          - not_null
+      - name: is_3bet
+        description: 3betフラグ
+        tests:
+          - not_null
+      - name: aggressive_actions
+        description: アグレッシブなアクション (BET、RAISE、ALL_IN) の回数
+        tests:
+          - not_null
+      - name: passive_actions
+        description: パッシブなアクション (CALL)の回数
+        tests:
+          - not_null
+      - name: cbet_flop
+        description: フロップでのCベットフラグ
+        tests:
+          - not_null

@@ -1,0 +1,137 @@
+version: 2
+
+models:
+  - name: stg_player_actions
+    description: >
+      プレイヤーのアクション情報を格納するステージングモデル。
+      EVT_ACTIONイベントから抽出された、各プレイヤーの意思決定とその結果を記録する。
+
+      主な用途:
+      - プレイヤーの行動パターンの分析 (VPIP, PFR, アグレッション等)
+      - ベッティングパターンの分析
+      - ポジションごとのプレイスタイルの分析
+      - ストリートごとのプレイ傾向の分析
+
+      アクション間の関係性:
+      1. プリフロップ
+         - SB: FOLD, CALL (最小コール額 = BB - SB) , RAISE (最小レイズ額 = BB * 2)
+         - BB: CHECK (アクションなし) , RAISE
+         - その他: FOLD, CALL (最小コール額 = BB) , RAISE
+      2. フロップ以降
+         - ファーストアクション: CHECK, BET (最小ベット額 = BB)
+         - アクション後: FOLD, CALL, RAISE (最小レイズ額 = 直前のベット/レイズ額 * 2)
+      3. 特殊なケース
+         - ALL_IN: 任意のタイミングで可能。残りチップ全てを賭ける
+         - ショートスタック: チップが最小ベット額未満の場合、ALL_INのみ選択可能
+
+      ベット制限:
+      - 最小ベット額: BB (プリフロップ以外)
+      - 最小レイズ額: 直前のベット/レイズ額 * 2
+      - 最大ベット額: プレイヤーの残りチップ数
+      - ポットリミット: なし (ノーリミットホールデム)
+
+      ポジションの影響:
+      - アーリーポジション (UTG, UTG+1) : 最初にアクション。情報が少なく不利
+      - ミドルポジション (MP, HJ) : 中間的なポジション。一部の情報を得られる
+      - レイトポジション (CO, BTN) : 最後にアクション。多くの情報を得られ有利
+      - ブラインド (SB, BB) : 強制ベットの影響を受けるが、ポストフロップは有利なポジションに
+
+      注意事項:
+      - アクションの順序はevent_timestampとaction_orderで保証される
+      - プレイヤーの切断やタイムアウトにより、アクションが欠落する可能性がある
+      - オールインの後のアクションは記録されない
+      - 同一ストリート内で複数回のレイズが可能 (3-bet, 4-bet等)
+      - ショートスタックのプレイヤーは、通常のベット制限の影響を受けない
+    columns:
+      - name: hand_id
+        description: >
+          ハンドを一意に識別するID。
+          int_handsテーブルとの結合キーとなる。
+        tests:
+          - not_null
+
+      - name: event_timestamp
+        description: >
+          アクションが実行された時刻。
+          同一ハンド内でのアクションの順序を決定する主要な基準となる。
+        tests:
+          - not_null
+
+      - name: phase
+        description: >
+          アクションが行われたストリート (フェーズ) を示す。
+          0: PREFLOP - 初期ベッティングラウンド。VPIPやPFRの計算に使用。
+          1: FLOP - フロップでのアクション。Cベット、フロップ継続率の計算に使用。
+          2: TURN - ターンでのアクション。
+          3: RIVER - リバーでのアクション。ショーダウン率の計算に使用。
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3]
+
+      - name: action_order
+        description: >
+          各フェーズ内でのアクションの順序を示す連番。
+          1から始まり、フェーズが変わると再度1からカウントされる。
+          3ベットやCベットの判定に使用される。
+        tests:
+          - not_null
+          - positive_value
+
+      - name: player_id
+        description: >
+          アクションを実行したプレイヤーのID。
+          プレイヤーの統計情報を集計する際の基準となる。
+        tests:
+          - not_null
+
+      - name: action_name
+        description: >
+          プレイヤーが選択したアクション。
+          FOLD: ハンドを放棄し、ポットへの権利を放棄
+          CHECK: アクションを次のプレイヤーに回す
+          CALL: 現在のベット額に合わせる
+          BET: 新規のベットを行う
+          RAISE: 既存のベットに対して金額を上げる
+          ALL_IN: 全てのチップを賭ける
+        tests:
+          - not_null
+          - accepted_values:
+              values: [FOLD, CHECK, CALL, BET, RAISE, ALL_IN]
+
+      - name: bet_chip
+        description: >
+          このアクションで賭けたチップ数。
+          FOLDとCHECKの場合は0。
+          CALLの場合は現在のベット額との差額。
+          BET、RAISE、ALL_INの場合は追加で賭けた額。
+        tests:
+          - not_null
+          - positive_value_or_zero
+
+      - name: pot
+        description: >
+          アクション後のポットサイズ。
+          全プレイヤーからのベット額の合計。
+          サイドポットが発生する場合は、全ポットの合計となる。
+        tests:
+          - not_null
+          - positive_value
+
+      - name: player_chip
+        description: >
+          アクション後のプレイヤーの残りチップ数。
+          実効スタックの計算やMレシオの分析に使用される。
+        tests:
+          - not_null
+          - positive_value_or_zero
+
+      - name: seat_index
+        description: >
+          プレイヤーの着席位置 (0-5) 。
+          ポジションの特定に使用される。
+          BTN、SB、BB、UTG、HJ、COの判定に必要。
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5]

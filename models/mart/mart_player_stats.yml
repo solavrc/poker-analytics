@@ -1,0 +1,216 @@
+version: 2
+
+models:
+  - name: mart_player_stats
+    description: プレイヤーごとの詳細な統計情報
+    columns:
+      - name: player_id
+        description: プレイヤーID
+        tests:
+          - not_null
+          - unique
+
+      - name: total_hands
+        description: >
+          プレイしたハンド数。
+          計算式: COUNT(DISTINCT hand_id)
+          前提条件: なし
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 10"
+
+      - name: vpip_ratio
+        description: >
+          VPIP (Voluntarily Put Money In Pot) 比率。
+          計算式: vpip_hands / total_hands
+          前提条件:
+          - プリフロップでCALL、BET、RAISE、ALL_INを行ったハンドをカウント
+          - BBのチェックは含まない
+          - SBのコールは含む
+          - ショートスタックの強制オールインは含む
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: pfr_ratio
+        description: >
+          PFR (Pre-Flop Raise) 比率。
+          計算式: pfr_hands / total_hands
+          前提条件:
+          - プリフロップでBET、RAISE、ALL_INを行ったハンドをカウント
+          - コールは含まない
+          - ショートスタックの強制オールインは含む
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: threeBet_ratio
+        description: >
+          3BET比率。
+          計算式: threeBet_hands / total_hands
+          前提条件:
+          - プリフロップで2回目以降のRAISEまたはALL_INを行ったハンドをカウント
+          - 最初のレイズに対するリレイズ以降のアクション
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: flopCB_ratio
+        description: >
+          フロップCBET (Continuation Bet) 比率。
+          計算式: flopCB_hands / saw_flop_hands
+          前提条件:
+          - プリフロップで最後のアグレッシブアクション (BET、RAISE、ALL_IN) を行ったプレイヤーが
+          - フロップでBET、RAISE、ALL_INを行ったハンドをカウント
+          - フロップでの最初のアクションである必要はない (チェックバックされた後のベットも含む)
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: aggression_factor
+        description: >
+          アグレッションファクター。
+          計算式: aggressive_actions / passive_actions
+          前提条件:
+          - アグレッシブアクション: BET、RAISE、ALL_IN
+          - パッシブアクション: CALL
+          - パッシブアクションが0の場合はアグレッシブアクションの数を返す
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: aggression_frequency
+        description: >
+          アグレッション頻度。
+          計算式: aggressive_actions / (aggressive_actions + passive_actions)
+          前提条件:
+          - アグレッシブアクション: BET、RAISE、ALL_IN
+          - パッシブアクション: CALL
+          - CHECKとFOLDは含まない
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: went_to_showdown_ratio
+        description: >
+          ショーダウンまで到達した比率。
+          計算式: showdown_hands / saw_flop_hands
+          前提条件:
+          - フロップを見たハンドのうち、ショーダウンまで到達した割合
+          - reward_chip IS NOT NULLの場合をショーダウンとみなす
+          - オールインの場合もショーダウンとしてカウント
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: won_when_saw_flop_ratio
+        description: >
+          フロップを見て勝利した比率。
+          計算式: won_after_flop_hands / saw_flop_hands
+          前提条件:
+          - フロップを見たハンドのうち、最終的に勝利した割合
+          - reward_chip > 0の場合を勝利とみなす
+          - フロップ以降のどのストリートで勝利しても含む
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: won_at_showdown_ratio
+        description: >
+          ショーダウンでの勝率。
+          計算式: won_at_showdown_hands / showdown_hands
+          前提条件:
+          - ショーダウンに到達したハンドのうち、勝利した割合
+          - reward_chip > 0の場合を勝利とみなす
+          - 引き分けの場合も勝利としてカウント
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: flop_seen_ratio
+        description: >
+          フロップを見た比率。
+          計算式: saw_flop_hands / total_hands
+          前提条件:
+          - 全ハンド数のうち、フロップまで到達したハンドの割合
+          - プリフロップでフォールドしたハンドは含まない
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: turn_seen_ratio
+        description: >
+          ターンを見た比率。
+          計算式: saw_turn_hands / saw_flop_hands
+          前提条件:
+          - フロップを見たハンドのうち、ターンまで到達したハンドの割合
+          - フロップでフォールドまたはオールインのハンドは含まない
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: river_seen_ratio
+        description: >
+          リバーを見た比率。
+          計算式: saw_river_hands / saw_turn_hands
+          前提条件:
+          - ターンを見たハンドのうち、リバーまで到達したハンドの割合
+          - ターンでフォールドまたはオールインのハンドは含まない
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1
+
+      - name: total_profit
+        description: >
+          総利益。
+          計算式: SUM(reward_chip)
+          前提条件:
+          - 全ハンドでの報酬の合計
+          - ブラインドやアンティも考慮済み
+        tests:
+          - not_null
+
+      - name: total_invested
+        description: >
+          総投資額。
+          計算式: SUM(bet_chip)
+          前提条件:
+          - 全ハンドでの投資額の合計
+          - ブラインド (SB、BB) を含む
+          - アンティを含む
+          - すべてのベット、レイズ、コール、オールイン額を含む
+        tests:
+          - not_null
+
+      - name: avg_profit_per_hand
+        description: >
+          1ハンドあたりの平均利益。
+          計算式: AVG(reward_chip)
+          前提条件:
+          - 全ハンドでの平均報酬
+          - ブラインドやアンティも考慮済み
+        tests:
+          - not_null
+
+      - name: roi
+        description: >
+          投資収益率 (Return on Investment)。
+          計算式: total_profit / total_invested
+          前提条件:
+          - 総投資額が0の場合は0を返す
+          - ブラインドやアンティも投資額に含む
+        tests:
+          - not_null

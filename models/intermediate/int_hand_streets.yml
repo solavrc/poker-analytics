@@ -1,0 +1,76 @@
+version: 2
+
+models:
+  - name: int_hand_streets
+    description: ハンドの各ストリートの情報
+    columns:
+      - name: hand_id
+        description: ハンドID
+        tests:
+          - not_null
+          - relationships:
+              to: ref('int_hands')
+              field: hand_id
+
+      - name: phase_name
+        description: ストリート名
+        tests:
+          - not_null
+          - accepted_values:
+              values: [PREFLOP, FLOP, TURN, RIVER]
+
+      - name: starting_pot
+        description: ストリート開始時のポットサイズ
+        tests:
+          - not_null
+          - positive_value_or_zero
+
+      - name: ending_pot
+        description: ストリート終了時のポットサイズ
+        tests:
+          - not_null
+          - positive_value_or_zero
+          - dbt_utils.expression_is_true:
+              expression: ">= starting_pot"
+
+      - name: active_players
+        description: ストリートでアクションを行ったプレイヤー数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 6
+
+      - name: total_actions
+        description: ストリートでのアクション総数
+        tests:
+          - not_null
+          - positive_value_or_zero
+
+      - name: aggressive_actions
+        description: ストリートでのアグレッシブなアクション (BET, RAISE) の数
+        tests:
+          - not_null
+          - positive_value_or_zero
+          - dbt_utils.expression_is_true:
+              expression: <= total_actions
+
+      - name: fold_actions
+        description: ストリートでのフォールド数
+        tests:
+          - not_null
+          - positive_value_or_zero
+          - dbt_utils.expression_is_true:
+              expression: <= total_actions
+
+      - name: total_bets
+        description: ストリートでのベット総額
+        tests:
+          - not_null
+          - positive_value_or_zero
+
+      - name: aggression_frequency
+        description: ストリートでのアグレッション頻度 (アグレッシブなアクション / 全アクション)
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 1

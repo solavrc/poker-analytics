@@ -1,0 +1,136 @@
+version: 2
+
+models:
+  - name: int_hands
+    description: ハンド結果。コミュニティカード、ポット、プレイヤー数、フェーズ情報などを含む
+    columns:
+      - name: hand_id
+        description: ハンドID
+        tests:
+          - not_null
+          - unique
+
+      - name: start_timestamp
+        description: ハンドの開始時刻
+        tests:
+          - not_null
+
+      - name: game_type
+        description: ゲームタイプ
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_hands')
+              field: game_type
+
+      - name: button_seat
+        description: ボタンのシート番号
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_hands')
+              field: button_seat
+
+      - name: sb_seat
+        description: SBのシート番号
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_hands')
+              field: sb_seat
+
+      - name: bb_seat
+        description: BBのシート番号
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_hands')
+              field: bb_seat
+
+      - name: bb
+        description: BB額
+        tests:
+          - not_null
+
+      - name: final_pot
+        description: 最終ポット額 (勝者が獲得したチップの合計)
+        tests:
+          - not_null
+
+      - name: active_players
+        description: 手札が配られたプレイヤー数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 1 AND 6
+
+      - name: vpip_players
+        description: VPIPプレイヤー数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND active_players
+
+      - name: pfr_players
+        description: PFRプレイヤー数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND vpip_players
+
+      - name: players_at_showdown
+        description: ショーダウンに到達したプレイヤー数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND active_players
+
+      - name: winners_at_showdown
+        description: ショーダウンでの勝者数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND players_at_showdown
+
+      - name: winners_count
+        description: 総勝者数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 1 AND active_players
+
+      - name: last_phase
+        description: >
+          ハンドが終了したストリート
+            0: PREFLOP
+            1: FLOP
+            2: TURN
+            3: RIVER
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND 3
+
+      - name: total_phases
+        description: 総フェーズ数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 1 AND 4
+
+      - name: betting_phases
+        description: ベッティングのあったフェーズ数
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: BETWEEN 0 AND total_phases
+
+      - name: total_profit
+        description: 総利益
+        tests:
+          - not_null
+
+      - name: winning_hand_strength
+        description: 勝者のハンドの強さ
+        tests:
+          - not_null

@@ -1,0 +1,94 @@
+version: 2
+
+models:
+  - name: stg_hand_events
+    description: >
+      ポーカーハンドのイベントデータを格納するステージングモデル。
+      各イベントは、ハンドの進行状況 (開始、ストリートの開始、カードの配布、プレイヤーのアクション、結果) を表す。
+
+      主なイベントタイプ:
+      - EVT_DEAL (303): ハンドの開始。プレイヤーへのホールカードの配布。SeatUserIdsの記録。
+      - EVT_ACTION (304): プレイヤーのアクション (FOLD, CHECK, CALL, BET, RAISE, ALL_IN) 。
+      - EVT_DEAL_ROUND (305): 新しいストリートの開始とコミュニティカードの配布。
+      - EVT_HAND_RESULTS (306): ハンドの終了。勝者とリワードの決定。
+
+      典型的なイベントシーケンス:
+      1. プリフロップ
+         - EVT_DEAL: ハンド開始、ホールカード配布
+         - EVT_ACTION: SB、BB、その他プレイヤーのアクション
+      2. フロップ
+         - EVT_DEAL_ROUND: フロップカード (3枚) の配布
+         - EVT_ACTION: 残っているプレイヤーのアクション
+      3. ターン
+         - EVT_DEAL_ROUND: ターンカード (1枚) の配布
+         - EVT_ACTION: 残っているプレイヤーのアクション
+      4. リバー
+         - EVT_DEAL_ROUND: リバーカード (1枚) の配布
+         - EVT_ACTION: 残っているプレイヤーのアクション
+      5. 終了
+         - EVT_HAND_RESULTS: 勝者の決定、報酬の分配
+
+      エッジケース:
+      - プレイヤーの切断: アクションの順序が乱れる可能性。タイムアウトまで待機。
+      - タイムバンク: 長考の場合、イベント間隔が通常より長くなる。
+      - オールイン: 以降のストリートでアクションイベントが発生しない。
+      - 早期終了: 全員がフォールドした場合、以降のDEAL_ROUNDイベントが発生しない。
+      - 同時切断: 複数プレイヤーが同時に切断した場合、イベントの順序が不定になる。
+
+      注意事項:
+      - hand_idはEVT_HAND_RESULTSイベントでのみ設定され、他のイベントではNULLとなる。
+      - 同一ハンド内でのイベントの順序は、event_timestampとhand_sequenceで保証される。
+      - プレイヤーの切断やタイムアウトにより、イベントが欠落する可能性がある。
+      - 60秒以上のイベント間隔がある場合、異常とみなされる。
+    columns:
+      - name: event_timestamp
+        description: >
+          イベントが発生した時刻。
+          同一ハンド内でのイベントの順序を決定する主要な基準となる。
+        tests:
+          - not_null
+
+      - name: hand_id
+        description: >
+          ハンドを一意に識別するID。
+          EVT_HAND_RESULTSイベントでのみ設定され、他のイベントではNULLとなる。
+          hand_sequenceと組み合わせることで、同一ハンド内のイベントを特定できる。
+
+      - name: hand_sequence
+        description: >
+          ハンド内でのイベントの連番。
+          event_timestampと組み合わせて、イベントの正確な順序を保証する。
+        tests:
+          - not_null
+          - positive_value_or_zero
+
+      - name: phase
+        description: >
+          ポーカーハンドのストリート (フェーズ) を示す。
+          0: PREFLOP - 初期ホールカードが配られた後の最初のベッティングラウンド
+          1: FLOP - 3枚のコミュニティカードが公開された後のベッティングラウンド
+          2: TURN - 4枚目のコミュニティカードが公開された後のベッティングラウンド
+          3: RIVER - 5枚目のコミュニティカードが公開された後の最後のベッティングラウンド
+        tests:
+          - accepted_values:
+              values: [0, 1, 2, 3]
+
+      - name: pot
+        description: >
+          現在のポットサイズ。
+          全プレイヤーからのベット額の合計を表す。
+          サイドポットが発生する場合は、メインポットとサイドポットの合計となる。
+        tests:
+          - positive_value_or_zero
+
+      - name: ApiTypeId
+        description: >
+          イベントの種類を示すID。
+          303: EVT_DEAL - ハンドの開始とホールカードの配布
+          304: EVT_ACTION - プレイヤーのアクション
+          305: EVT_DEAL_ROUND - 新しいストリートの開始
+          306: EVT_HAND_RESULTS - ハンドの終了と結果
+        tests:
+          - not_null
+          - accepted_values:
+              values: [303, 304, 305, 306]

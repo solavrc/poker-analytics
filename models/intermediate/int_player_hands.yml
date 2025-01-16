@@ -1,0 +1,146 @@
+version: 2
+
+models:
+  - name: int_player_hands
+    description: プレイヤーごとのハンド情報。ポジション、ホールカード、アクション、結果などを含む
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - hand_id
+            - player_id
+    columns:
+      - name: hand_id
+        description: ハンドID
+        tests:
+          - not_null
+          - relationships:
+              to: ref('int_hands')
+              field: hand_id
+
+      - name: player_id
+        description: プレイヤーID
+        tests:
+          - not_null
+
+      - name: seat_index
+        description: シート番号
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_hands')
+              field: button_seat
+
+      - name: position
+        description: ポジション (BTN, SB, BB, UTG, HJ, CO)
+        tests:
+          - not_null
+          - accepted_values:
+              values: [BTN, SB, BB, UTG, HJ, CO]
+
+      - name: hole_cards_str
+        description: ホールカードの文字列表現
+
+      - name: hand_str
+        description: ハンド文字列 (AKs, AA, 72o)
+
+      - name: hand_type
+        description: ハンドタイプ (POCKET_PAIR, SUITED_CONNECTOR, SUITED, CONNECTOR, OFFSUIT, NULL)
+        tests:
+          - accepted_values:
+              values:
+                [
+                  POCKET_PAIR,
+                  SUITED_CONNECTOR,
+                  SUITED,
+                  CONNECTOR,
+                  OFFSUIT,
+                  null,
+                ]
+
+      - name: hand_category
+        description: ハンドカテゴリー (PREMIUM_PAIR, MEDIUM_PAIR, SMALL_PAIR, PREMIUM_CARDS, MEDIUM_CARDS, SMALL_CARDS, NULL)
+        tests:
+          - accepted_values:
+              values:
+                [
+                  PREMIUM_PAIR,
+                  MEDIUM_PAIR,
+                  SMALL_PAIR,
+                  PREMIUM_CARDS,
+                  MEDIUM_CARDS,
+                  SMALL_CARDS,
+                  null,
+                ]
+
+      - name: hand_ranking
+        tests:
+          - not_null
+          - accepted_values:
+              values: [-1, 1, 2, 3, 4, 5, 6]
+
+      - name: effective_stack
+        description: 実効スタック
+        tests:
+          - not_null
+
+      - name: final_stack
+        description: 最終スタック
+        tests:
+          - not_null
+
+      - name: net_profit
+        description: 純利益
+        tests:
+          - not_null
+
+      - name: m_ratio
+        description: Mレシオ
+        tests:
+          - not_null
+
+      - name: is_vpip
+        description: VPIPフラグ
+        tests:
+          - not_null
+
+      - name: is_pfr
+        description: PFRフラグ
+        tests:
+          - not_null
+
+      - name: is_3bet
+        description: 3betフラグ
+        tests:
+          - not_null
+
+      - name: cbet_flop
+        description: フロップでのCベットフラグ
+        tests:
+          - not_null
+
+      - name: fold_to_cbet
+        description: Cベットに対するフォールドフラグ
+        tests:
+          - not_null
+
+      - name: went_to_showdown
+        description: ショーダウンに到達したかどうか
+        tests:
+          - not_null
+
+      - name: won_at_showdown
+        description: ショーダウンで勝利したかどうか
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: = 0 OR went_to_showdown = 1
+
+      - name: aggression_factor
+        description: アグレッションファクター
+        tests:
+          - not_null
+
+      - name: pressure_index
+        description: プレッシャーインデックス
+        tests:
+          - not_null
