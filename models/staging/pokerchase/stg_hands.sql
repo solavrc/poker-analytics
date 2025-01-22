@@ -43,22 +43,22 @@ with deal_events as (
     select
         hand_id,
         sender_user_id,
-        value:Game:ButtonSeat::number as button_seat,
-        value:Game:SmallBlindSeat::number as sb_seat,
-        value:Game:BigBlindSeat::number as bb_seat,
-        value:Game:SmallBlind::number as sb,
-        value:Game:BigBlind::number as bb,
-        value:Game:Ante::number as ante,
-        value:Game:CurrentBlindLv::number as current_blind_lv,
+        value:"Game":"ButtonSeat"::number as button_seat,
+        value:"Game":"SmallBlindSeat"::number as sb_seat,
+        value:"Game":"BigBlindSeat"::number as bb_seat,
+        value:"Game":"SmallBlind"::number as sb,
+        value:"Game":"BigBlind"::number as bb,
+        value:"Game":"Ante"::number as ante,
+        value:"Game":"CurrentBlindLv"::number as current_blind_lv,
         CASE
-            WHEN value:Game:NextBlindUnixSeconds::number = -1 THEN 'RING_GAME'
+            WHEN value:"Game":"NextBlindUnixSeconds"::number = -1 THEN 'RING_GAME'
             ELSE 'TOURNAMENT'
         END as game_type,
-        value:Game:NextBlindUnixSeconds::number as next_blind_unix_seconds,
-        value:SeatUserIds as seat_user_ids,
+        value:"Game":"NextBlindUnixSeconds"::number as next_blind_unix_seconds,
+        value:"SeatUserIds" as seat_user_ids,
         event_timestamp as start_timestamp
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 303  -- EVT_DEAL
+    where api_type_id = 303  -- EVT_DEAL
     and is_hand_start = 1  -- ハンドの開始時のみ
 ),
 
@@ -92,7 +92,7 @@ hand_results as (
         sender_user_id,
         event_timestamp as end_timestamp
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 306  -- EVT_HAND_RESULTS
+    where api_type_id = 306  -- EVT_HAND_RESULTS
     qualify row_number() over (
         partition by hand_id
         order by event_timestamp desc
@@ -108,12 +108,12 @@ flop_cards as (
     select
         hand_id,
         sender_user_id,
-        value:CommunityCards as cards,
-        value:Progress:Phase::number as phase
+        value:"CommunityCards" as cards,
+        value:"Progress":"Phase"::number as phase
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 305  -- EVT_DEAL_ROUND
-    and value:Progress:Phase::number = 1
-    and value:CommunityCards is not null
+    where api_type_id = 305  -- EVT_DEAL_ROUND
+    and value:"Progress":"Phase"::number = 1
+    and value:"CommunityCards" is not null
     qualify row_number() over (
         partition by hand_id
         order by event_timestamp desc
@@ -129,12 +129,12 @@ turn_cards as (
     select
         hand_id,
         sender_user_id,
-        value:CommunityCards as cards,
-        value:Progress:Phase::number as phase
+        value:"CommunityCards" as cards,
+        value:"Progress":"Phase"::number as phase
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 305  -- EVT_DEAL_ROUND
-    and value:Progress:Phase::number = 2
-    and value:CommunityCards is not null
+    where api_type_id = 305  -- EVT_DEAL_ROUND
+    and value:"Progress":"Phase"::number = 2
+    and value:"CommunityCards" is not null
     qualify row_number() over (
         partition by hand_id
         order by event_timestamp desc
@@ -150,12 +150,12 @@ river_cards as (
     select
         hand_id,
         sender_user_id,
-        value:CommunityCards as cards,
-        value:Progress:Phase::number as phase
+        value:"CommunityCards" as cards,
+        value:"Progress":"Phase"::number as phase
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 305  -- EVT_DEAL_ROUND
-    and value:Progress:Phase::number = 3
-    and value:CommunityCards is not null
+    where api_type_id = 305  -- EVT_DEAL_ROUND
+    and value:"Progress":"Phase"::number = 3
+    and value:"CommunityCards" is not null
     qualify row_number() over (
         partition by hand_id
         order by event_timestamp desc
@@ -172,11 +172,11 @@ result_cards as (
     select
         hand_id,
         sender_user_id,
-        value:CommunityCards as cards
+        value:"CommunityCards" as cards
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 306  -- EVT_HAND_RESULTS
-    and value:CommunityCards is not null
-    and array_size(value:CommunityCards) > 0  -- 空配列を除外
+    where api_type_id = 306  -- EVT_HAND_RESULTS
+    and value:"CommunityCards" is not null
+    and array_size(value:"CommunityCards") > 0  -- 空配列を除外
     qualify row_number() over (
         partition by hand_id
         order by event_timestamp desc

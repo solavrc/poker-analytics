@@ -10,20 +10,22 @@ unit_tests:
         rows:
           - event_timestamp: "2024-01-01 00:00:01"
             sender_user_id: 1
-            ApiTypeId: 303 # EVT_DEAL
-            value: { HandId: 1 }
+            api_type_id: 303
+            api_type: EVT_DEAL
           - event_timestamp: "2024-01-01 00:00:02"
             sender_user_id: 1
-            ApiTypeId: 304 # EVT_ACTION
-            value: { HandId: 1 }
+            api_type_id: 304
+            api_type: EVT_ACTION
           - event_timestamp: "2024-01-01 00:00:03"
             sender_user_id: 1
-            ApiTypeId: 305 # EVT_DEAL_ROUND
-            value: { HandId: 1 }
+            api_type_id: 305
+            api_type: EVT_DEAL_ROUND
           - event_timestamp: "2024-01-01 00:00:04"
             sender_user_id: 1
-            ApiTypeId: 306 # EVT_HAND_RESULTS
-            value: { HandId: 1 }
+            api_type_id: 306
+            api_type: EVT_HAND_RESULTS
+            hand_id: 1
+
     expect:
       rows:
         - hand_id: 1
@@ -58,12 +60,12 @@ unit_tests:
         rows:
           - event_timestamp: "2024-01-01 00:00:01"
             sender_user_id: 1
-            ApiTypeId: 306 # EVT_HAND_RESULTS
-            value: { HandId: 1 }
+            api_type: EVT_HAND_RESULTS
+            api_type_id: 306
           - event_timestamp: "2024-01-01 00:00:02"
             sender_user_id: 1
-            ApiTypeId: 303 # EVT_DEAL
-            value: null
+            api_type: EVT_DEAL
+            api_type_id: 303
     expect:
       rows: []
 
@@ -78,11 +80,12 @@ unit_tests:
         rows:
           - event_timestamp: "2024-01-01 00:00:01"
             sender_user_id: 1
-            ApiTypeId: 304 # EVT_ACTION
-            value: { HandId: 1 }
+            api_type_id: 304
+            api_type: EVT_ACTION
           - event_timestamp: "2024-01-01 00:00:02"
             sender_user_id: 1
-            ApiTypeId: 306 # EVT_HAND_RESULTS
-            value: { HandId: 1 }
+            api_type_id: 306
+            api_type: EVT_HAND_RESULTS
+            hand_id: 1
     expect:
       rows: []

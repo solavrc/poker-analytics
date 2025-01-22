@@ -1,22 +1,22 @@
 WITH source AS (
     SELECT *
     FROM {{ source('pokerchase', 'raw_api_events') }}
-    WHERE ApiTypeId = 306  -- EVT_HAND_RESULTS
+    WHERE api_type_id = 306  -- EVT_HAND_RESULTS
 ),
 
 renamed AS (
     SELECT
-        HandId as hand_id,
-        sender_user_id,
-        r.VALUE:UserId::NUMBER as player_id,
-        r.VALUE:HoleCards::ARRAY as hole_cards,
-        r.VALUE:RankType::NUMBER as rank_type,
-        r.VALUE:HandRanking::NUMBER as hand_ranking,
-        r.VALUE:Ranking::NUMBER as ranking,
-        r.VALUE:RewardChip::NUMBER as reward_chip
-    FROM source,
-    LATERAL FLATTEN(input => Results) r
-    WHERE r.VALUE:UserId IS NOT NULL  -- NULLのプレイヤーを除外
+        s.hand_id,
+        s.sender_user_id,
+        r.VALUE:"UserId"::NUMBER as player_id,
+        r.VALUE:"HoleCards"::ARRAY as hole_cards,
+        r.VALUE:"RankType"::NUMBER as rank_type,
+        r.VALUE:"HandRanking"::NUMBER as hand_ranking,
+        r.VALUE:"Ranking"::NUMBER as ranking,
+        r.VALUE:"RewardChip"::NUMBER as reward_chip
+    FROM source s,
+    LATERAL FLATTEN(input => s.results) r
+    WHERE r.VALUE:"UserId" IS NOT NULL  -- NULLのプレイヤーを除外
 ),
 
 -- 同一hand_idとplayer_idの組み合わせで最も多くの情報を持つレコードを選択

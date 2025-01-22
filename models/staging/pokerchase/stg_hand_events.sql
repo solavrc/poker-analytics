@@ -30,10 +30,10 @@ WITH
 session_groups AS (
     SELECT
         e.*,
-        SUM(CASE WHEN ApiTypeId = 308 THEN 1 ELSE 0 END)
+        SUM(CASE WHEN api_type_id = 308 THEN 1 ELSE 0 END)
             OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as session_group
     FROM {{ source('pokerchase', 'raw_api_events') }} e
-    WHERE ApiTypeId IN (303, 304, 305, 306, 308, 309)
+    WHERE api_type_id IN (303, 304, 305, 306, 308, 309)
 ),
 
 session_boundaries AS (
@@ -57,9 +57,9 @@ event_boundaries AS (
     SELECT
         sb.*,
         LAG(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as prev_event_timestamp,
-        LAG(ApiTypeId) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as prev_event_type,
+        LAG(api_type_id) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as prev_event_type,
         LEAD(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as next_event_timestamp,
-        LEAD(ApiTypeId) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as next_event_type,
+        LEAD(api_type_id) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as next_event_type,
         -- 前のイベントとの間隔チェック
         TIMESTAMPDIFF(SECOND, LAG(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp), event_timestamp) as seconds_from_prev,
         -- 次のイベントとの間隔チェック
@@ -71,7 +71,7 @@ event_boundaries AS (
             THEN 1 ELSE 0
         END as has_invalid_interval
     FROM session_boundaries sb
-    WHERE ApiTypeId IN (303, 304, 305, 306)
+    WHERE api_type_id IN (303, 304, 305, 306)
 ),
 
 -- hand_groups CTE
@@ -84,14 +84,14 @@ hand_groups AS (
     SELECT
         eb.*,
         -- 新しいハンドグループの開始を検出
-        SUM(CASE WHEN ApiTypeId = 303 THEN 1 ELSE 0 END)
+        SUM(CASE WHEN api_type_id = 303 THEN 1 ELSE 0 END)
             OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as hand_group,
         -- イベントの有効性を判定
         CASE
-            WHEN ApiTypeId = 303 THEN 1  -- EVT_DEAL は常に有効
-            WHEN ApiTypeId = 306 THEN 1  -- EVT_HAND_RESULTS は常に有効
-            WHEN LAG(ApiTypeId) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) = 306
-                AND ApiTypeId != 303 THEN 0  -- EVT_HAND_RESULTS の後の非EVT_DEALイベントは無効
+            WHEN api_type_id = 303 THEN 1  -- EVT_DEAL は常に有効
+            WHEN api_type_id = 306 THEN 1  -- EVT_HAND_RESULTS は常に有効
+            WHEN LAG(api_type_id) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) = 306
+                AND api_type_id != 303 THEN 0  -- EVT_HAND_RESULTS の後の非EVT_DEALイベントは無効
             ELSE 1  -- その他のイベントは有効
         END as is_valid_event
     FROM event_boundaries eb
@@ -106,16 +106,17 @@ hand_groups AS (
 -- - 同一hand_group内のイベントに同じHandIdを付与
 hand_validity AS (
     SELECT
-        hg.*,
+        -- exclude: (42601): SQL compilation error: ambiguous column name 'HAND_ID'
+        hg.* exclude(hand_id),
         -- 同一グループ内の最後のEVT_HAND_RESULTSからHandIdを取得
-        LAST_VALUE(CASE WHEN ApiTypeId = 306 THEN value:HandId::NUMBER ELSE NULL END IGNORE NULLS)
+        LAST_VALUE(CASE WHEN api_type_id = 306 THEN hand_id ELSE NULL END IGNORE NULLS)
             OVER (PARTITION BY sender_user_id, hand_group ORDER BY event_timestamp
                   ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as hand_id,
         -- EVT_DEALの存在確認
-        MAX(CASE WHEN ApiTypeId = 303 THEN 1 ELSE 0 END)
+        MAX(CASE WHEN api_type_id = 303 THEN 1 ELSE 0 END)
             OVER (PARTITION BY sender_user_id, hand_group) as has_deal_event,
         -- EVT_HAND_RESULTSの存在確認
-        MAX(CASE WHEN ApiTypeId = 306 THEN 1 ELSE 0 END)
+        MAX(CASE WHEN api_type_id = 306 THEN 1 ELSE 0 END)
             OVER (PARTITION BY sender_user_id, hand_group) as has_results_event
     FROM hand_groups hg
 )
@@ -134,25 +135,25 @@ SELECT
     hv.session_group,
     hv.session_start_time,
     hv.hand_id,
-    hv.ApiTypeId,
+    hv.api_type_id,
     hv.seconds_from_prev,
     hv.seconds_to_next,
     hv.has_invalid_interval,
     hv.value,
-    CASE WHEN hv.ApiTypeId = 303 THEN 1 ELSE 0 END as is_hand_start,
-    CASE WHEN hv.ApiTypeId = 306 THEN 1 ELSE 0 END as is_hand_end,
+    CASE WHEN hv.api_type_id = 303 THEN 1 ELSE 0 END as is_hand_start,
+    CASE WHEN hv.api_type_id = 306 THEN 1 ELSE 0 END as is_hand_end,
     -- ハンドシーケンスを追加（同一ハンド内でのイベントの順序）
     ROW_NUMBER() OVER (PARTITION BY hv.hand_id ORDER BY hv.event_timestamp) as hand_sequence,
     -- フェーズ情報を追加
     CASE
-        WHEN hv.ApiTypeId = 304 THEN hv.value:Progress:Phase::number
-        WHEN hv.ApiTypeId = 305 THEN hv.value:Progress:Phase::number
+        WHEN hv.api_type_id = 304 THEN hv.progress:"Phase"::number
+        WHEN hv.api_type_id = 305 THEN hv.progress:"Phase"::number
         ELSE NULL
     END as phase,
     -- ポット情報を追加
     CASE
-        WHEN hv.ApiTypeId = 304 THEN hv.value:Progress:Pot::number
-        WHEN hv.ApiTypeId = 305 THEN hv.value:Progress:Pot::number
+        WHEN hv.api_type_id = 304 THEN hv.progress:"Pot"::number
+        WHEN hv.api_type_id = 305 THEN hv.progress:"Pot"::number
         ELSE NULL
     END as pot
 FROM hand_validity hv

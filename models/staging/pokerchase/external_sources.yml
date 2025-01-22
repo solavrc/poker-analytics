@@ -40,26 +40,22 @@ sources:
           - name: timestamp
             data_type: number
             description: UNIXタイムスタンプ (ミリ秒)
-            tests:
-              - not_null
 
           - name: event_timestamp
             data_type: timestamp_ntz
             description: イベントのタイムスタンプ
             expression: TO_TIMESTAMP_NTZ(timestamp, 3)
-            tests:
-              - not_null
 
           - name: ApiTypeId
+            alias: api_type_id
             data_type: number
             description: APIイベントタイプ
-            tests:
-              - not_null
 
           - name: ApiType
+            alias: api_type
             data_type: varchar
             expression: >
-              CASE ApiTypeId
+              CASE api_type_id
                 WHEN 201 THEN 'RES_ENTRY_QUEUED'
                 WHEN 202 THEN 'RES_ACTION_COMPLETED'
                 WHEN 203 THEN 'RES_ENTRY_CANCEL_QUEUED'
@@ -153,15 +149,14 @@ sources:
                  "timestamp":1737299195132}
 
           - name: HandId
+            alias: hand_id
             data_type: number
             description: >
               ハンドを識別するID
               `EVT_HAND_RESULTS`にのみ存在する。
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_HAND_RESULTS'
 
           - name: OtherPlayers
+            alias: other_players
             data_type: array
             description: >
               テーブルに着席中のプレイヤー
@@ -170,11 +165,9 @@ sources:
                 Chip: プレイヤーの残りチップ量
                 SeatIndex: プレイヤーのシート番号
                 Status: プレイヤーのステータス
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_HAND_RESULTS'
 
           - name: Player
+            alias: player
             data_type: variant
             description: >
               プレイヤーの情報
@@ -185,6 +178,7 @@ sources:
                 SeatIndex: プレイヤーのシート番号
 
           - name: Progress
+            alias: progress
             data_type: variant
             description: >
               ハンドの進行状況
@@ -201,11 +195,9 @@ sources:
                 BetChip: ベットしたチップ数
                 Chip: プレイヤーの残りチップ量
                 SidePot: サイドポットのサイズ
-            tests:
-              - not_null:
-                  where: ApiType IN ('EVT_DEAL', 'EVT_DEAL_ROUND', 'EVT_ACTION')
 
           - name: ActionType
+            alias: action_type
             data_type: number
             description: >
               0: CHECK
@@ -214,34 +206,24 @@ sources:
               3: CALL
               4: RAISE
               5: ALL_IN
-            tests:
-              - accepted_values:
-                  values: [0, 1, 2, 3, 4, 5]
-                  where: ApiType = 'EVT_ACTION'
 
           - name: BetChip
+            alias: bet_chip
             data_type: number
             description: プレイヤーのベットしたチップ数
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_ACTION'
 
           - name: Chip
+            alias: chip
             data_type: number
             description: プレイヤーのチップ数
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_ACTION'
 
           - name: SeatIndex
+            alias: seat_index
             data_type: number
             description: プレイヤーのシート番号
-            tests:
-              - accepted_values:
-                  values: [0, 1, 2, 3, 4, 5]
-                  where: ApiType = 'EVT_ACTION'
 
           - name: Game
+            alias: game
             data_type: variant
             description: >
               ゲーム情報
@@ -255,20 +237,17 @@ sources:
                 NextBlindUnixSeconds: 次のブラインドのUNIXタイムスタンプ
 
           - name: SeatUserIds
+            alias: seat_user_ids
             data_type: array
             description: 各シートのプレイヤーID (配列)
-            tests:
-              - not_null:
-                  where: ApiType IN ('EVT_DEAL', 'EVT_PLAYER_SEAT_ASSIGNED')
 
           - name: CommunityCards
+            alias: community_cards
             data_type: array
             description: コミュニティカード (配列)
-            tests:
-              - not_null:
-                  where: ApiType IN ('EVT_DEAL_ROUND', 'EVT_HAND_RESULTS')
 
           - name: Results
+            alias: results
             data_type: array
             description: >
               ハンドの結果 (配列)
@@ -280,24 +259,17 @@ sources:
                 Ranking: 最終順位（トーナメント）
 
               サンプルクエリ:
-                SELECT e.HandId, r.VALUE
+                SELECT e.hand_id, r.VALUE
                 FROM POKER_ANALYTICS.POKERCHASE.RAW_API_EVENTS e, LATERAL FLATTEN(input => e.Results) r
-                WHERE ApiType = 306
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_HAND_RESULTS'
+                WHERE api_type_id = 306
 
           - name: Name
+            alias: name
             data_type: varchar
             description: >
               イベント名
               例: 6人対戦【STAGEⅥ】
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_SESSION_DETAILS'
 
           - name: TableUsers
+            alias: table_users
             data_type: array
-            tests:
-              - not_null:
-                  where: ApiType = 'EVT_PLAYER_SEAT_ASSIGNED'

@@ -31,22 +31,22 @@ with action_events as (
         hand_id,
         sender_user_id,
         event_timestamp,
-        value:SeatIndex::number as seat_index,
-        value:Progress:Phase::number as phase,
+        value:"SeatIndex"::number as seat_index,
+        value:"Progress":"Phase"::number as phase,
         case
-            when value:ActionType::number = 2 then 'FOLD'
-            when value:ActionType::number = 0 then 'CHECK'
-            when value:ActionType::number = 3 then 'CALL'
-            when value:ActionType::number = 1 then 'BET'
-            when value:ActionType::number = 4 then 'RAISE'
-            when value:ActionType::number = 5 then 'ALL_IN'
+            when value:"ActionType"::number = 2 then 'FOLD'
+            when value:"ActionType"::number = 0 then 'CHECK'
+            when value:"ActionType"::number = 3 then 'CALL'
+            when value:"ActionType"::number = 1 then 'BET'
+            when value:"ActionType"::number = 4 then 'RAISE'
+            when value:"ActionType"::number = 5 then 'ALL_IN'
         end as action_name,
-        coalesce(value:Chip::number, 0) as player_chip,
-        coalesce(value:BetChip::number, 0) as bet_chip,
-        coalesce(value:Progress.Pot::number, 0) as pot,
-        value:Progress.NextActionSeat::number as next_action_seat
+        coalesce(value:"Chip"::number, 0) as player_chip,
+        coalesce(value:"BetChip"::number, 0) as bet_chip,
+        coalesce(value:"Progress":"Pot"::number, 0) as pot,
+        value:"Progress":"NextActionSeat"::number as next_action_seat
     from {{ ref('stg_hand_events') }}
-    where ApiTypeId = 304  -- EVT_ACTION
+    where api_type_id = 304  -- EVT_ACTION
 ),
 
 -- best_actions CTE

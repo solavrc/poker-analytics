@@ -57,7 +57,7 @@ models:
         description: ハンドID。EVT_DEALからEVT_HAND_RESULTSまでの一連のイベントを識別する。
         tests:
           - not_null:
-              where: "has_invalid_interval = 0 and ApiTypeId = 306"
+              where: "has_invalid_interval = 0 and api_type_id = 306"
 
       - name: hand_sequence
         description: >
@@ -88,7 +88,7 @@ models:
           - accepted_values:
               values: [0, 1]
 
-      - name: ApiTypeId
+      - name: api_type_id
         description: >
           イベントの種類を示すID。
           303: EVT_DEAL - ハンドの開始とホールカードの配布
