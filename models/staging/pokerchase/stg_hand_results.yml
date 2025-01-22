@@ -72,6 +72,11 @@ models:
         tests:
           - not_null
 
+      - name: source_user_id
+        description: 情報の提供元となったユーザーID
+        tests:
+          - not_null
+
       - name: hole_cards
         description: >
           プレイヤーのホールカード (手札) を数値配列で表現。
@@ -79,7 +84,8 @@ models:
           - ランク = FLOOR(数値 / 4) [0=2, 1=3, ..., 12=A]
           - スート = 数値 % 4 [0=s, 1=h, 2=d, 3=c]
         tests:
-          - not_null
+          - not_null:
+              where: "source_user_id = player_id" # 自分自身のログでは必ず手札が見える
 
       - name: hole_cards_str
         description: >
@@ -89,8 +95,8 @@ models:
           - ['Ah'] - マック時に1枚だけ見せた場合
           - [] - マックした場合 (カードを見せなかった場合)
         tests:
-          - dbt_utils.expression_is_true:
-              expression: IS NULL OR ARRAY_SIZE(hole_cards_str) IN (0, 1, 2)
+          - not_null:
+              where: "array_size(hole_cards) > 0"
 
       - name: rank_type
         description: >
@@ -109,15 +115,21 @@ models:
           11: MUCKED_WHEN_SHOWDOWN - ショーダウン時にマック。
           12: OPEN_WHEN_FOLDED - フォールド時にカードを公開。
         tests:
-          - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 12
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+              where: "rank_type is not null"
 
       - name: hand_ranking
         description: >
           ショーダウンでの順位。
           1が最高位 (勝者) で、参加プレイヤー数に応じて増加。
           フォールドしたプレイヤーは-1となる。
+        tests:
+          - positive_value:
+              where: "hand_ranking is not null and hand_ranking != -1"
+
+      - name: ranking
+        description: トーナメントでの順位
 
       - name: reward_chip
         description: >

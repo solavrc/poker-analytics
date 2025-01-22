@@ -85,6 +85,11 @@ models:
         tests:
           - not_null
 
+      - name: source_user_id
+        description: 情報の提供元となったユーザーID
+        tests:
+          - not_null
+
       - name: action_name
         description: >
           プレイヤーが選択したアクション。

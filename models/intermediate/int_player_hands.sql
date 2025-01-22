@@ -52,11 +52,11 @@ player_actions AS (
         SUM(CASE WHEN action_name IN ('BET', 'RAISE', 'ALL_IN') THEN 1 ELSE 0 END) AS aggressive_actions,
         SUM(CASE WHEN action_name = 'CALL' THEN 1 ELSE 0 END) AS passive_actions,
         -- スタック情報
-        MIN(player_chip) AS starting_stack,
-        MAX(player_chip) AS final_stack,
-        SUM(bet_chip) AS total_invested,
+        COALESCE(MIN(player_chip), 0) AS starting_stack,
+        COALESCE(MAX(player_chip), 0) AS final_stack,
+        COALESCE(SUM(bet_chip), 0) AS total_invested,
         -- プレッシャー指標の平均
-        AVG(bet_chip::FLOAT) AS pressure_index
+        COALESCE(AVG(bet_chip::FLOAT), 0) AS pressure_index
     FROM player_actions_base pa1
     GROUP BY hand_id, player_id
 ),
@@ -174,16 +174,19 @@ SELECT
     hr.hand_category,
     hr.hand_ranking,
     -- スタック情報
-    pa.starting_stack,
-    pa.final_stack,
-    pa.total_invested,
+    COALESCE(pa.starting_stack, 0) AS starting_stack,
+    COALESCE(pa.final_stack, 0) AS final_stack,
+    COALESCE(pa.total_invested, 0) AS total_invested,
     -- Mレシオ（スタック / BB）
-    CASE
-        WHEN pi.bb > 0 THEN pa.starting_stack::FLOAT / pi.bb
-        ELSE NULL
-    END AS m_ratio,
+    COALESCE(
+        CASE
+            WHEN COALESCE(pi.bb, 0) > 0 THEN pa.starting_stack::FLOAT / pi.bb
+            ELSE 0
+        END,
+        0
+    ) AS m_ratio,
     -- 実効スタック（自分と相手の小さい方のスタック）
-    pa.starting_stack AS effective_stack,
+    COALESCE(pa.starting_stack, 0) AS effective_stack,
     -- アクション指標
     pa.is_vpip,
     pa.is_pfr,
@@ -196,8 +199,8 @@ SELECT
     hr.net_profit,
     -- アグレッション指標
     CASE
-        WHEN pa.passive_actions > 0 THEN pa.aggressive_actions::FLOAT / pa.passive_actions
-        ELSE pa.aggressive_actions::FLOAT
+        WHEN COALESCE(pa.passive_actions, 0) > 0 THEN pa.aggressive_actions::FLOAT / pa.passive_actions
+        ELSE COALESCE(pa.aggressive_actions::FLOAT, 0)
     END AS aggression_factor,
     pa.pressure_index
 FROM hand_results hr

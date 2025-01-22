@@ -4,4 +4,5 @@ tasks:
   deps:
     cmds:
       - python -m pip install --progress-bar off -r requirements.txt
+      - pipx install 'shandy-sqlfmt[jinjafmt]'
       - dbt deps

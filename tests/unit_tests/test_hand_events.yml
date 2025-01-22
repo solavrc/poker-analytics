@@ -1,0 +1,88 @@
+unit_tests:
+  - name: test_valid_hand_sequence
+    description: >
+      正常なハンドシーケンスのテスト。
+      EVT_DEAL → EVT_ACTION → EVT_DEAL_ROUND → EVT_HAND_RESULTS の順序で
+      イベントが処理され、正しいhand_sequenceが付与されることを確認。
+    model: stg_hand_events
+    given:
+      - input: source('pokerchase', 'raw_api_events')
+        rows:
+          - event_timestamp: "2024-01-01 00:00:01"
+            sender_user_id: 1
+            ApiTypeId: 303 # EVT_DEAL
+            value: { HandId: 1 }
+          - event_timestamp: "2024-01-01 00:00:02"
+            sender_user_id: 1
+            ApiTypeId: 304 # EVT_ACTION
+            value: { HandId: 1 }
+          - event_timestamp: "2024-01-01 00:00:03"
+            sender_user_id: 1
+            ApiTypeId: 305 # EVT_DEAL_ROUND
+            value: { HandId: 1 }
+          - event_timestamp: "2024-01-01 00:00:04"
+            sender_user_id: 1
+            ApiTypeId: 306 # EVT_HAND_RESULTS
+            value: { HandId: 1 }
+    expect:
+      rows:
+        - hand_id: 1
+          hand_sequence: 1
+          is_hand_start: 1
+          is_hand_end: 0
+          has_invalid_interval: 0
+        - hand_id: 1
+          hand_sequence: 2
+          is_hand_start: 0
+          is_hand_end: 0
+          has_invalid_interval: 0
+        - hand_id: 1
+          hand_sequence: 3
+          is_hand_start: 0
+          is_hand_end: 0
+          has_invalid_interval: 0
+        - hand_id: 1
+          hand_sequence: 4
+          is_hand_start: 0
+          is_hand_end: 1
+          has_invalid_interval: 0
+
+  - name: test_invalid_sequence
+    description: >
+      無効なハンドシーケンスのテスト。
+      EVT_HAND_RESULTS の後に EVT_DEAL が来る場合、
+      EVT_DEALが存在しないため、出力には含まれません。
+    model: stg_hand_events
+    given:
+      - input: source('pokerchase', 'raw_api_events')
+        rows:
+          - event_timestamp: "2024-01-01 00:00:01"
+            sender_user_id: 1
+            ApiTypeId: 306 # EVT_HAND_RESULTS
+            value: { HandId: 1 }
+          - event_timestamp: "2024-01-01 00:00:02"
+            sender_user_id: 1
+            ApiTypeId: 303 # EVT_DEAL
+            value: null
+    expect:
+      rows: []
+
+  - name: test_missing_deal_event
+    description: >
+      EVT_DEAL イベントが欠落しているケースのテスト。
+      EVT_DEAL なしのハンドは無効として扱われ、
+      出力には含まれないことを確認。
+    model: stg_hand_events
+    given:
+      - input: source('pokerchase', 'raw_api_events')
+        rows:
+          - event_timestamp: "2024-01-01 00:00:01"
+            sender_user_id: 1
+            ApiTypeId: 304 # EVT_ACTION
+            value: { HandId: 1 }
+          - event_timestamp: "2024-01-01 00:00:02"
+            sender_user_id: 1
+            ApiTypeId: 306 # EVT_HAND_RESULTS
+            value: { HandId: 1 }
+    expect:
+      rows: []

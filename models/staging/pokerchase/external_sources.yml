@@ -4,19 +4,39 @@ sources:
   - name: pokerchase
     description: >
       PokerChaseのAPIイベントデータ
-      `$ dbt run-operation stage_external_sources --vars ext_full_refresh: true`
+      `$ dbt run-operation stage_external_sources --vars "ext_full_refresh: true"`
     schema: POKERCHASE
+    loaded_at_field: loaded_at
+
     tables:
       - name: raw_api_events
-        description: PokerChaseのAPIイベントデータ。ハンドの開始、フェーズの開始、カードの配布、プレイヤーのアクション、ハンドの結果などを含む。
+        description: >
+          PokerChaseのAPIイベントデータ。
+          ハンドの開始、フェーズの開始、カードの配布、プレイヤーのアクション、ハンドの結果などを含む。
+
+          dbt run-operation stage_external_sources --vars "ext_full_refresh: true"
 
         external:
           location: "@POKER_ANALYTICS.POKERCHASE.S3_EXTERNAL_POKERCHASE_STAGE"
           file_format: array_json_format
-          auto_refresh: true
-          pattern: .*[.]json
+          # pattern: .*[.]json
+          pattern: .*2025-01-21T00:00:00.000Z.test_tournament.json
+          partitions:
+            - name: sender_user_id
+              description: イベントを送信したユーザーのID
+              data_type: number
+              expression: TO_NUMBER(SPLIT_PART(metadata$filename, '/', 2))
+            - name: loaded_at
+              description: イベントを取り込んだ日付
+              data_type: date
+              expression: TO_DATE(SUBSTR(SPLIT_PART(metadata$filename, '/', 3), 0, 10))
 
         columns:
+          - name: row_number
+            description: ファイル内の行番号
+            data_type: number
+            expression: metadata$file_row_number
+
           - name: timestamp
             data_type: number
             description: UNIXタイムスタンプ (ミリ秒)
@@ -38,7 +58,6 @@ sources:
 
           - name: ApiType
             data_type: varchar
-            description: APIイベントタイプの名前
             expression: >
               CASE ApiTypeId
                 WHEN 201 THEN 'RES_ENTRY_QUEUED'
@@ -67,26 +86,124 @@ sources:
                 WHEN 317 THEN 'EVT_BLIND_RAISED'
                 WHEN 319 THEN 'EVT_ENTRY_COMPLETED'
               END
+            description: >
+              主なイベントタイプ:
+
+              308: EVT_SESSION_DETAILS
+                トーナメントやリングゲームの設定情報。
+                例:
+                {"ApiTypeId":308,
+                 "BlindStructures":[
+                   {"ActiveMinutes":3,"Ante":50,"BigBlind":200,"Lv":1},
+                   {"ActiveMinutes":3,"Ante":70,"BigBlind":280,"Lv":2},
+                   ... 省略 ...
+                 ],
+                 "DefaultChip":30000,
+                 "IsReplay":true,
+                 "Name":"ステージⅥ",
+                 "timestamp":1737297251276}
+
+              303: EVT_DEAL
+                ハンドの起点。
+                例:
+                {"ApiTypeId":303,
+                 "Game":{"Ante":50,"BigBlind":200,"ButtonSeat":5,"SmallBlind":100},
+                 "OtherPlayers":[
+                   {"BetChip":100,"SeatIndex":0,"Chip":29850,"Status":0},
+                   ...
+                 ],
+                 "Player":{"HoleCards":[5,34],"SeatIndex":3,"Chip":29950},
+                 "SeatUserIds":[639171155,900323435,620868655,-1,166317878,898959592],
+                 "timestamp":1737297260863}
+
+              304: EVT_ACTION
+                ハンドのアクション。
+                例:
+                {"ApiTypeId":304,
+                 "ActionType":4,"BetChip":600,"Chip":29350,"SeatIndex":2,
+                 "Progress":{"Pot":1200,"Phase":0},
+                 "timestamp":1737297266967}
+
+              305: EVT_DEAL_ROUND
+                コミュニティカード公開などストリート進行。
+                例:
+                {"ApiTypeId":305,
+                 "CommunityCards":[23,9,40],
+                 "Progress":{"Pot":1700,"Phase":1},
+                 "timestamp":1737297275773}
+
+              306: EVT_HAND_RESULTS
+                ハンドの結果。HandIdを取得できる唯一の機会。
+                例:
+                {"ApiTypeId":306,
+                 "HandId":306377888,
+                 "Pot":1700,
+                 "Results":[
+                   {"Hands":[23,22,50,47,40],"HoleCards":[14,50],"RewardChip":850,"UserId":639171155},
+                   ...
+                 ],
+                 "timestamp":1737297296662}
+
+              309: EVT_SESSION_RESULTS
+                トーナメントやリングゲームの最終結果通知など。
+                例:
+                {"ApiTypeId":309,
+                 "BattleFinishTime":1737299195,
+                 "Ranking":1,
+                 "timestamp":1737299195132}
 
           - name: HandId
             data_type: number
-            description: ハンドID
+            description: >
+              ハンドを識別するID
+              `EVT_HAND_RESULTS`にのみ存在する。
             tests:
               - not_null:
-                  where: ApiTypeId = 306
+                  where: ApiType = 'EVT_HAND_RESULTS'
 
-          - name: Phase
-            data_type: number
+          - name: OtherPlayers
+            data_type: array
             description: >
-              0: PREFLOP
-              1: FLOP
-              2: TURN
-              3: RIVER
-            expression: $1:Progress.Phase
+              テーブルに着席中のプレイヤー
+                BetStatus: ベットのステータス
+                BetChip: ベットしたチップ数
+                Chip: プレイヤーの残りチップ量
+                SeatIndex: プレイヤーのシート番号
+                Status: プレイヤーのステータス
             tests:
-              - accepted_values:
-                  values: [0, 1, 2, 3]
-                  where: ApiTypeId IN (303, 304, 305)
+              - not_null:
+                  where: ApiType = 'EVT_HAND_RESULTS'
+
+          - name: Player
+            data_type: variant
+            description: >
+              プレイヤーの情報
+                BetChip: ベットしたチップ数
+                BetStatus: ベットのステータス
+                Chip: プレイヤーの残りチップ量
+                HoleCards: プレイヤーの手札
+                SeatIndex: プレイヤーのシート番号
+
+          - name: Progress
+            data_type: variant
+            description: >
+              ハンドの進行状況
+                Phase: フェーズ
+                  0: PREFLOP
+                  1: FLOP
+                  2: TURN
+                  3: RIVER
+                NextActionSeat: 次のアクションのシート番号
+                  -2: ハンド終了
+                  -1: フェーズ終了
+                  0-5: シート番号
+                Pot: 現在のポットサイズ
+                BetChip: ベットしたチップ数
+                Chip: プレイヤーの残りチップ量
+                SidePot: サイドポットのサイズ
+            tests:
+              - not_null:
+                  where: ApiType IN ('EVT_DEAL', 'EVT_DEAL_ROUND', 'EVT_ACTION')
 
           - name: ActionType
             data_type: number
@@ -100,41 +217,21 @@ sources:
             tests:
               - accepted_values:
                   values: [0, 1, 2, 3, 4, 5]
-                  where: ApiTypeId = 304
-
-          - name: NextActionSeat
-            data_type: number
-            expression: $1:Progress.NextActionSeat
-            description: >
-              -2: ハンド終了
-              -1: フェーズ終了
-              0-5: シート番号
-            tests:
-              - accepted_values:
-                  values: [-2, -1, 0, 1, 2, 3, 4, 5]
-                  where: ApiTypeId IN (302, 304)
-
-          - name: Pot
-            data_type: number
-            expression: $1:Progress.Pot
-            description: 現在のポットサイズ
-            tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 304
-
-          - name: Chip
-            data_type: number
-            description: プレイヤーの残りチップ量
-            tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 304 AND ActionType NOT IN (2)
+                  where: ApiType = 'EVT_ACTION'
 
           - name: BetChip
             data_type: number
-            description: ベットしたチップ数
+            description: プレイヤーのベットしたチップ数
             tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 304 AND ActionType IN (1, 3, 4, 5)
+              - not_null:
+                  where: ApiType = 'EVT_ACTION'
+
+          - name: Chip
+            data_type: number
+            description: プレイヤーのチップ数
+            tests:
+              - not_null:
+                  where: ApiType = 'EVT_ACTION'
 
           - name: SeatIndex
             data_type: number
@@ -142,97 +239,65 @@ sources:
             tests:
               - accepted_values:
                   values: [0, 1, 2, 3, 4, 5]
-                  where: ApiTypeId = 304
+                  where: ApiType = 'EVT_ACTION'
 
-          - name: ButtonSeat
-            data_type: number
-            description: ボタンのシート番号
-            expression: $1:Game.ButtonSeat
-            tests:
-              - accepted_values:
-                  values: [0, 1, 2, 3, 4, 5]
-                  where: ApiTypeId = 303
-
-          - name: SmallBlindSeat
-            data_type: number
-            description: SBのシート番号
-            expression: $1:Game.SmallBlindSeat
-            tests:
-              - accepted_values:
-                  values: [0, 1, 2, 3, 4, 5]
-                  where: ApiTypeId = 303
-
-          - name: BigBlindSeat
-            data_type: number
-            description: BBのシート番号
-            expression: $1:Game.BigBlindSeat
-            tests:
-              - accepted_values:
-                  values: [0, 1, 2, 3, 4, 5]
-                  where: ApiTypeId = 303
-
-          - name: SmallBlind
-            data_type: number
-            description: SBの額
-            expression: $1:Game.SmallBlind
-            tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 303
-
-          - name: BigBlind
-            data_type: number
-            description: BBの額
-            expression: $1:Game.BigBlind
-            tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 303
-
-          - name: Ante
-            data_type: number
-            description: アンティの額 (存在する場合)
-            expression: $1:Game.Ante
-            tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 303
-
-          - name: CurrentBlindLv
-            data_type: number
-            description: 現在のブラインドレベル
-            expression: $1:Game.CurrentBlindLv
-            tests:
-              - positive_value_or_zero:
-                  where: ApiTypeId = 303
-
-          - name: NextBlindUnixSeconds
-            data_type: number
-            description: 次のブラインドのUNIXタイムスタンプ
-            expression: $1:Game.NextBlindUnixSeconds
-            tests:
-              - not_null:
-                  where: ApiTypeId = 303
+          - name: Game
+            data_type: variant
+            description: >
+              ゲーム情報
+                ButtonSeat: ボタンのシート番号
+                SmallBlindSeat: SBのシート番号
+                BigBlindSeat: BBのシート番号
+                SmallBlind: SBの額
+                BigBlind: BBの額
+                Ante: アンティの額
+                CurrentBlindLv: 現在のブラインドレベル
+                NextBlindUnixSeconds: 次のブラインドのUNIXタイムスタンプ
 
           - name: SeatUserIds
             data_type: array
             description: 各シートのプレイヤーID (配列)
             tests:
               - not_null:
-                  where: ApiTypeId = 303
-
-          - name: HoleCards
-            data_type: array
-            description: プレイヤーのホールカード (配列)
-            expression: $1:Player.HoleCards
+                  where: ApiType IN ('EVT_DEAL', 'EVT_PLAYER_SEAT_ASSIGNED')
 
           - name: CommunityCards
             data_type: array
             description: コミュニティカード (配列)
             tests:
               - not_null:
-                  where: ApiTypeId IN (305, 306)
+                  where: ApiType IN ('EVT_DEAL_ROUND', 'EVT_HAND_RESULTS')
 
           - name: Results
             data_type: array
-            description: ハンドの結果 (配列)
+            description: >
+              ハンドの結果 (配列)
+                UserId: プレイヤーID
+                HoleCards: 手札
+                RankType: 完成した役のランク (0-12)
+                HandRanking: ハンド内の順位
+                RewardChip: 獲得チップ
+                Ranking: 最終順位（トーナメント）
+
+              サンプルクエリ:
+                SELECT e.HandId, r.VALUE
+                FROM POKER_ANALYTICS.POKERCHASE.RAW_API_EVENTS e, LATERAL FLATTEN(input => e.Results) r
+                WHERE ApiType = 306
             tests:
               - not_null:
-                  where: ApiTypeId = 306
+                  where: ApiType = 'EVT_HAND_RESULTS'
+
+          - name: Name
+            data_type: varchar
+            description: >
+              イベント名
+              例: 6人対戦【STAGEⅥ】
+            tests:
+              - not_null:
+                  where: ApiType = 'EVT_SESSION_DETAILS'
+
+          - name: TableUsers
+            data_type: array
+            tests:
+              - not_null:
+                  where: ApiType = 'EVT_PLAYER_SEAT_ASSIGNED'

@@ -1,169 +1,163 @@
-WITH event_boundaries AS (
-  SELECT
-    event_timestamp,
-    ApiTypeId,
-    ApiType,
-    HandId as hand_id,
-    -- 前のイベントとの時間差を計算
-    TIMESTAMPDIFF(SECOND, LAG(event_timestamp) OVER (ORDER BY event_timestamp), event_timestamp) as seconds_from_prev_event,
-    -- 前のイベントがEVT_HAND_RESULTSの場合、新しいハンドの開始
-    LAG(ApiTypeId) OVER (ORDER BY event_timestamp) as prev_event_type,
-    -- 次のEVT_DEALまでを同じハンドとして扱う
-    LEAD(ApiTypeId) OVER (ORDER BY event_timestamp) as next_event_type,
-    -- 前のEVT_HAND_RESULTSのhand_idを取得
-    LAG(HandId) OVER (ORDER BY event_timestamp) as prev_hand_id,
-    -- EVT_DEALで、かつ前のEVT_HAND_RESULTSからの最初のEVT_DEALの場合に新しいハンド開始
-    CASE
-      WHEN ApiTypeId = 303  -- EVT_DEAL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM {{ source('pokerchase', 'raw_api_events') }} prev
-          WHERE prev.event_timestamp < event_timestamp
-            AND prev.event_timestamp > (
-              SELECT MAX(e2.event_timestamp)
-              FROM {{ source('pokerchase', 'raw_api_events') }} e2
-              WHERE e2.event_timestamp < event_timestamp
-                AND e2.ApiTypeId = 306  -- EVT_HAND_RESULTS
-            )
-            AND prev.ApiTypeId = 303  -- EVT_DEAL
-        )
-      THEN 1
-      ELSE 0
-    END as is_new_hand
-  FROM {{ source('pokerchase', 'raw_api_events') }}
-  WHERE ApiTypeId IN (303, 304, 305, 306)  -- 関連するイベントのみを対象とする
+/*
+このモデルは、ポーカーハンドのイベントを処理し、有効なイベントシーケンスを抽出します。
+
+主な処理の流れ：
+1. セッションの境界を特定（session_boundaries）
+   - EVT_SESSION_DETAILS (308) から次の EVT_SESSION_DETAILS/RESULTS までを同一セッションとして扱う
+   - 最初の HandId をセッションIDとして使用
+
+2. イベントの境界を特定（event_boundaries）
+   - ハンドに関連するイベント（303-306）を抽出
+   - 各イベントの前後関係を把握
+   - イベント間隔が60秒以内であることを確認
+
+3. ハンドグループを作成（hand_groups）
+   - EVT_DEAL (303) を起点に昇順で EVT_HAND_RESULTS (306) までを同一ハンドとしてグループ化
+   - 無効なシーケンス（EVT_HAND_RESULTS が EVT_DEAL の前に出現）を除外
+
+4. ハンドの有効性をチェック（hand_validity）
+   - EVT_HAND_RESULTS (306) から HandId を取得し、同一グループ内の全イベントに適用
+   - EVT_DEAL (303) の存在を確認（has_deal_event）
+   - 同一hand_group内のイベントに同じHandIdを付与
+*/
+
+WITH
+-- session_boundaries CTE
+-- 目的：セッションの境界を特定し、セッションIDを割り当てます
+-- 処理内容：
+-- - EVT_SESSION_DETAILS (308) から次の EVT_SESSION_DETAILS または EVT_SESSION_RESULTS (309) までを追跡
+-- - セッション開始時のタイムスタンプをセッションIDとして使用
+session_groups AS (
+    SELECT
+        e.*,
+        SUM(CASE WHEN ApiTypeId = 308 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as session_group
+    FROM {{ source('pokerchase', 'raw_api_events') }} e
+    WHERE ApiTypeId IN (303, 304, 305, 306, 308, 309)
 ),
+
+session_boundaries AS (
+    SELECT
+        sg.*,
+        FIRST_VALUE(event_timestamp) OVER (
+            PARTITION BY sender_user_id, session_group
+            ORDER BY event_timestamp
+        ) as session_start_time,
+        {{ dbt_utils.generate_surrogate_key(['sender_user_id', 'session_group']) }} as session_id
+    FROM session_groups sg
+),
+
+-- event_boundaries CTE
+-- 目的：ハンドに関連するイベントを抽出し、各イベントの前後関係を把握します
+-- 処理内容：
+-- - ハンドイベント（303-306）のみを対象とする
+-- - 各イベントの前後のイベントタイプとタイムスタンプを取得
+-- - イベント間隔が60秒以内であることを確認
+event_boundaries AS (
+    SELECT
+        sb.*,
+        LAG(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as prev_event_timestamp,
+        LAG(ApiTypeId) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as prev_event_type,
+        LEAD(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as next_event_timestamp,
+        LEAD(ApiTypeId) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as next_event_type,
+        -- 前のイベントとの間隔チェック
+        TIMESTAMPDIFF(SECOND, LAG(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp), event_timestamp) as seconds_from_prev,
+        -- 次のイベントとの間隔チェック
+        TIMESTAMPDIFF(SECOND, event_timestamp, LEAD(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp)) as seconds_to_next,
+        -- 60秒以上の間隔があるイベントを検出
+        CASE WHEN
+            TIMESTAMPDIFF(SECOND, LAG(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp), event_timestamp) > 60
+            OR TIMESTAMPDIFF(SECOND, event_timestamp, LEAD(event_timestamp) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp)) > 60
+            THEN 1 ELSE 0
+        END as has_invalid_interval
+    FROM session_boundaries sb
+    WHERE ApiTypeId IN (303, 304, 305, 306)
+),
+
+-- hand_groups CTE
+-- 目的：同一ハンドに属するイベントをグループ化します
+-- 処理内容：
+-- - EVT_DEAL (303) を起点に昇順でイベントをグループ化
+-- - EVT_HAND_RESULTS (306) が EVT_DEAL の前に出現する場合、それは前のハンドの終了
+-- - hand_group により、同一ハンドのイベントに同じ値を付与
 hand_groups AS (
-  SELECT
-    event_timestamp,
-    ApiTypeId,
-    ApiType,
-    hand_id,
-    seconds_from_prev_event,
-    prev_event_type,
-    next_event_type,
-    prev_hand_id,
-    is_new_hand,
-    -- ハンドの開始からの連番を付与
-    SUM(is_new_hand) OVER (ORDER BY event_timestamp) as hand_group
-  FROM event_boundaries
+    SELECT
+        eb.*,
+        -- 新しいハンドグループの開始を検出
+        SUM(CASE WHEN ApiTypeId = 303 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) as hand_group,
+        -- イベントの有効性を判定
+        CASE
+            WHEN ApiTypeId = 303 THEN 1  -- EVT_DEAL は常に有効
+            WHEN ApiTypeId = 306 THEN 1  -- EVT_HAND_RESULTS は常に有効
+            WHEN LAG(ApiTypeId) OVER (PARTITION BY sender_user_id ORDER BY event_timestamp) = 306
+                AND ApiTypeId != 303 THEN 0  -- EVT_HAND_RESULTS の後の非EVT_DEALイベントは無効
+            ELSE 1  -- その他のイベントは有効
+        END as is_valid_event
+    FROM event_boundaries eb
+    WHERE has_invalid_interval = 0  -- 60秒以上の間隔があるイベントを除外
 ),
--- ハンドごとのイベント間隔チェック
+
+-- hand_validity CTE
+-- 目的：ハンドの有効性を確認し、正しいHandIdを割り当てます
+-- 処理内容：
+-- - EVT_HAND_RESULTS (306) から HandId を取得し、同一グループ内の全イベントに適用
+-- - EVT_DEAL (303) の存在を確認（has_deal_event）
+-- - 同一hand_group内のイベントに同じHandIdを付与
 hand_validity AS (
-  SELECT
-    hg.hand_group,
-    -- 30秒を超えるイベント間隔が存在するかチェック
-    MAX(CASE
-      WHEN hg.seconds_from_prev_event > 20
-      AND hg.ApiTypeId = 304  -- EVT_ACTIONの場合のみチェック
-      THEN 1
-      ELSE 0
-    END) as has_invalid_interval,
-    -- 最大のイベント間隔
-    MAX(CASE
-      WHEN hg.ApiTypeId = 304  -- EVT_ACTIONの場合のみ
-      THEN hg.seconds_from_prev_event
-      ELSE 0
-    END) as max_action_interval
-  FROM hand_groups hg
-  GROUP BY hg.hand_group
-),
-hand_ids AS (
-  SELECT
-    hg.event_timestamp,
-    hg.ApiTypeId,
-    hg.ApiType,
-    hg.hand_id,
-    hg.seconds_from_prev_event,
-    hg.prev_event_type,
-    hg.next_event_type,
-    hg.prev_hand_id,
-    hg.is_new_hand,
-    hg.hand_group,
-    v.has_invalid_interval,
-    v.max_action_interval,
-    -- 同じhand_group内での最初のhand_id
-    FIRST_VALUE(hg.hand_id IGNORE NULLS) OVER (
-      PARTITION BY hg.hand_group
-      ORDER BY hg.event_timestamp
-      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-    ) as first_hand_id,
-    -- 同じhand_group内での最後のhand_id
-    LAST_VALUE(hg.hand_id IGNORE NULLS) OVER (
-      PARTITION BY hg.hand_group
-      ORDER BY hg.event_timestamp
-      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-    ) as last_hand_id
-  FROM hand_groups hg
-  JOIN hand_validity v ON v.hand_group = hg.hand_group
-),
-hand_boundaries AS (
-  SELECT
-    event_timestamp,
-    ApiTypeId,
-    ApiType,
-    hand_group,
-    is_new_hand,
-    has_invalid_interval,
-    max_action_interval,
-    -- ハンドIDの付与ロジック
-    CASE
-      WHEN has_invalid_interval = 0 THEN  -- 有効なハンドの場合のみハンドIDを付与
-        COALESCE(
-          first_hand_id,
-          CASE
-            WHEN ApiTypeId = 306 THEN hand_id
-            ELSE last_hand_id
-          END
-        )
-      ELSE NULL  -- 無効なハンドの場合はNULL
-    END as hand_id,
-    -- ハンドの開始フラグ
-    CASE
-      WHEN ApiTypeId = 303 AND is_new_hand = 1 THEN 1
-      ELSE 0
-    END as is_hand_start,
-    -- ハンドの終了フラグ
-    CASE
-      WHEN ApiTypeId = 306 THEN 1
-      ELSE 0
-    END as is_hand_end,
-    hand_group as hand_sequence
-  FROM hand_ids
+    SELECT
+        hg.*,
+        -- 同一グループ内の最後のEVT_HAND_RESULTSからHandIdを取得
+        LAST_VALUE(CASE WHEN ApiTypeId = 306 THEN value:HandId::NUMBER ELSE NULL END IGNORE NULLS)
+            OVER (PARTITION BY sender_user_id, hand_group ORDER BY event_timestamp
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as hand_id,
+        -- EVT_DEALの存在確認
+        MAX(CASE WHEN ApiTypeId = 303 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY sender_user_id, hand_group) as has_deal_event,
+        -- EVT_HAND_RESULTSの存在確認
+        MAX(CASE WHEN ApiTypeId = 306 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY sender_user_id, hand_group) as has_results_event
+    FROM hand_groups hg
 )
+
+-- 最終的な出力
+-- - 有効なハンドイベントのみを抽出（has_deal_event = 1 AND has_results_event = 1）
+-- - イベントの基本情報（タイムスタンプ、送信者、ハンドID、イベントタイプ）
+-- - セッション情報（session_id, session_group, session_start_time）
+-- - 時間間隔情報（seconds_from_prev, seconds_to_next）
+-- - 生データ（value）を含む
+-- - ハンドの開始（EVT_DEAL）と終了（EVT_HAND_RESULTS）を示すフラグ
 SELECT
-  s.event_timestamp,
-  e.ApiTypeId,
-  e.ApiType,
-  s.hand_sequence,
-  s.is_hand_start,
-  s.is_hand_end,
-  s.hand_id,
-  s.has_invalid_interval,  -- 無効なインターバルの有無
-  s.max_action_interval,   -- 最大アクション間隔
-  e.Phase,
-  e.ActionType,
-  e.BetChip,
-  COALESCE(e.Pot, 0) as Pot,
-  e.Chip,
-  e.SeatUserIds,
-  e.SeatIndex,
-  e.NextActionSeat,
-  e.ButtonSeat,
-  e.SmallBlindSeat,
-  e.BigBlindSeat,
-  e.SmallBlind,
-  e.BigBlind,
-  e.Ante,
-  e.CurrentBlindLv,
-  e.NextBlindUnixSeconds,
-  e.HoleCards,
-  e.CommunityCards,
-  e.Results,
-  e.VALUE,
-FROM hand_boundaries s
-JOIN {{ source('pokerchase', 'raw_api_events') }} e
-  ON s.event_timestamp = e.event_timestamp
-  AND e.ApiTypeId IN (303, 304, 305, 306)  -- 関連するイベントのみを対象とする
-WHERE hand_sequence > 0  -- 最初のEVT_DEAL以前のイベントを除外
-  AND s.has_invalid_interval = 0  -- 有効なハンドのみを対象とする
+    hv.event_timestamp,
+    hv.sender_user_id,
+    hv.session_id,
+    hv.session_group,
+    hv.session_start_time,
+    hv.hand_id,
+    hv.ApiTypeId,
+    hv.seconds_from_prev,
+    hv.seconds_to_next,
+    hv.has_invalid_interval,
+    hv.value,
+    CASE WHEN hv.ApiTypeId = 303 THEN 1 ELSE 0 END as is_hand_start,
+    CASE WHEN hv.ApiTypeId = 306 THEN 1 ELSE 0 END as is_hand_end,
+    -- ハンドシーケンスを追加（同一ハンド内でのイベントの順序）
+    ROW_NUMBER() OVER (PARTITION BY hv.hand_id ORDER BY hv.event_timestamp) as hand_sequence,
+    -- フェーズ情報を追加
+    CASE
+        WHEN hv.ApiTypeId = 304 THEN hv.value:Progress:Phase::number
+        WHEN hv.ApiTypeId = 305 THEN hv.value:Progress:Phase::number
+        ELSE NULL
+    END as phase,
+    -- ポット情報を追加
+    CASE
+        WHEN hv.ApiTypeId = 304 THEN hv.value:Progress:Pot::number
+        WHEN hv.ApiTypeId = 305 THEN hv.value:Progress:Pot::number
+        ELSE NULL
+    END as pot
+FROM hand_validity hv
+WHERE hv.has_deal_event = 1  -- EVT_DEALが存在するハンドのみを対象とする
+AND hv.has_results_event = 1  -- EVT_HAND_RESULTSが存在するハンドのみを対象とする
+AND hv.is_valid_event = 1  -- 無効なイベントを除外
+AND hv.hand_id IS NOT NULL  -- HandIdが取得できたハンドのみを対象とする
+ORDER BY hv.event_timestamp

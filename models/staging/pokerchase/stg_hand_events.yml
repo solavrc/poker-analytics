@@ -48,11 +48,16 @@ models:
         tests:
           - not_null
 
+      - name: sender_user_id
+        description: ログ送信者のユーザーID
+        tests:
+          - not_null
+
       - name: hand_id
-        description: >
-          ハンドを一意に識別するID。
-          EVT_HAND_RESULTSイベントでのみ設定され、他のイベントではNULLとなる。
-          hand_sequenceと組み合わせることで、同一ハンド内のイベントを特定できる。
+        description: ハンドID。EVT_DEALからEVT_HAND_RESULTSまでの一連のイベントを識別する。
+        tests:
+          - not_null:
+              where: "has_invalid_interval = 0 and ApiTypeId = 306"
 
       - name: hand_sequence
         description: >
@@ -60,26 +65,28 @@ models:
           event_timestampと組み合わせて、イベントの正確な順序を保証する。
         tests:
           - not_null
-          - positive_value_or_zero
+          - positive_value
 
-      - name: phase
-        description: >
-          ポーカーハンドのストリート (フェーズ) を示す。
-          0: PREFLOP - 初期ホールカードが配られた後の最初のベッティングラウンド
-          1: FLOP - 3枚のコミュニティカードが公開された後のベッティングラウンド
-          2: TURN - 4枚目のコミュニティカードが公開された後のベッティングラウンド
-          3: RIVER - 5枚目のコミュニティカードが公開された後の最後のベッティングラウンド
+      - name: is_hand_start
+        description: ハンド開始フラグ
         tests:
+          - not_null
           - accepted_values:
-              values: [0, 1, 2, 3]
+              values: [0, 1]
 
-      - name: pot
-        description: >
-          現在のポットサイズ。
-          全プレイヤーからのベット額の合計を表す。
-          サイドポットが発生する場合は、メインポットとサイドポットの合計となる。
+      - name: is_hand_end
+        description: ハンド終了フラグ
         tests:
-          - positive_value_or_zero
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: has_invalid_interval
+        description: 無効なイベント間隔の有無
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
 
       - name: ApiTypeId
         description: >
@@ -90,5 +97,33 @@ models:
           306: EVT_HAND_RESULTS - ハンドの終了と結果
         tests:
           - not_null
-          - accepted_values:
-              values: [303, 304, 305, 306]
+
+      - name: action_type
+        description: アクションの種類（0:チェック, 1:ベット, 2:フォールド, 3:コール, 4:レイズ, 5:オールイン）
+
+      - name: seat_index
+        description: プレイヤーの着席位置
+
+      - name: next_action_seat
+        description: 次のアクションのシート番号（-2:ハンド終了, -1:フェーズ終了, 0-5:シート番号）
+
+      - name: button_seat
+        description: ボタンの位置
+
+      - name: sb_seat
+        description: スモールブラインドの位置
+
+      - name: bb_seat
+        description: ビッグブラインドの位置
+
+      - name: sb
+        description: スモールブラインドの額
+
+      - name: bb
+        description: ビッグブラインドの額
+
+      - name: ante
+        description: アンティの額（0の場合もあり）
+
+      - name: current_blind_lv
+        description: 現在のブラインドレベル

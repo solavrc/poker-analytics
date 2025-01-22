@@ -1,3 +1,49 @@
+/*
+このモデルは、プレイヤーごとのポーカープレイスタイルと成績を分析し、
+様々な指標を計算して総合的な評価を行います。
+
+主な処理の流れ：
+1. プレイヤーアクションの抽出（player_actions）
+   - int_player_actionsから必要な情報を取得
+   - トーナメントのハンドのみを対象
+
+2. ショーダウン結果の処理（showdown_results）
+   - ショーダウンの参加有無
+   - 勝敗結果
+   - 収支情報（net_profit, total_invested）を取得
+   - ホールカードの有無でプレイヤーの状態を判定
+
+3. プレイヤー統計の計算（player_stats）
+   a. プリフロップ指標
+      - VPIP（Voluntarily Put money In Pot）
+      - PFR（PreFlop Raise）
+      - 3BET
+
+   b. ポストフロップ指標
+      - フロップCベット
+      - アグレッション（アグレッシブアクション vs パッシブアクション）
+      - ストリート到達率と勝率
+
+   c. ショーダウン統計
+      - ショーダウン到達率
+      - ショーダウン勝率
+      - フロップ以降の勝率
+
+   d. 収益性指標
+      - 総利益
+      - 総投資額
+      - 平均ハンド収益
+      - ROI
+
+4. 最終的な出力
+   - 基本統計（total_hands）
+   - プリフロップ指標（vpip_ratio, pfr_ratio, threeBet_ratio）
+   - ポストフロップ指標（flopCB_ratio, aggression_factor, aggression_frequency）
+   - ストリート統計（flop_seen_ratio, turn_seen_ratio, river_seen_ratio）
+   - 勝率指標（won_after_flop_ratio, won_after_turn_ratio, won_after_river_ratio）
+   - 収益指標（total_profit, total_invested, avg_profit_per_hand, roi）
+*/
+
 WITH player_actions AS (
     SELECT
         pa.*
@@ -5,6 +51,12 @@ WITH player_actions AS (
     JOIN {{ ref('stg_hands') }} h ON pa.hand_id = h.hand_id
 ),
 
+-- showdown_results CTE
+-- 目的：ショーダウンの結果とプレイヤーの状態を把握します
+-- 処理内容：
+-- - ショーダウンの参加有無と勝敗を記録
+-- - 収支情報（net_profit, total_invested）を取得
+-- - ホールカードの有無でプレイヤーの状態を判定
 showdown_results AS (
     SELECT
         sr.player_id,
@@ -23,6 +75,14 @@ showdown_results AS (
     WHERE h.game_type = 'TOURNAMENT'
 ),
 
+-- player_stats CTE
+-- 目的：プレイヤーごとの詳細な統計を計算します
+-- 処理内容：
+-- - 基本統計（total_hands）
+-- - プリフロップ指標（VPIP, PFR, 3BET）
+-- - ポストフロップ指標（フロップCB, アグレッション）
+-- - ストリート統計（到達率、勝率）
+-- - 収益性指標（利益、投資額、平均収益）
 player_stats AS (
     SELECT
         pa.player_id,
@@ -61,6 +121,13 @@ player_stats AS (
     GROUP BY pa.player_id
 )
 
+-- 最終的な出力
+-- - 基本統計（total_hands）
+-- - プリフロップ指標（vpip_ratio, pfr_ratio, threeBet_ratio）
+-- - ポストフロップ指標（flopCB_ratio, aggression_factor, aggression_frequency）
+-- - ストリート統計（flop_seen_ratio, turn_seen_ratio, river_seen_ratio）
+-- - 勝率指標（won_after_flop_ratio, won_after_turn_ratio, won_after_river_ratio）
+-- - 収益指標（total_profit, total_invested, avg_profit_per_hand, roi）
 SELECT
     player_id,
     total_hands,

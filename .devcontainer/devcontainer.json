@@ -5,6 +5,7 @@
     "ghcr.io/devcontainers-contrib/features/black:1": {},
     "ghcr.io/devcontainers-contrib/features/meltano": {},
     "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers-contrib/features/pipx-package:1.1.7": {},
     "ghcr.io/eitsupi/devcontainer-features/duckdb-cli:1": {},
     "ghcr.io/eitsupi/devcontainer-features/go-task:1": {}
   },
@@ -16,18 +17,20 @@
       "settings": {
         "terminal.integrated.defaultProfile.linux": "zsh",
         "python.analysis.typeCheckingMode": "basic",
-        "sqlfluff.experimental.format.executeInTerminal": true,
+        "files.associations": {
+          "*.sql": "jinja-sql"
+        },
         "[jinja-sql]": {
           "editor.defaultFormatter": "innoverio.vscode-dbt-power-user",
-          "editor.formatOnSave": false
+          "editor.tabSize": 2,
+          "editor.insertSpaces": true,
+          "editor.detectIndentation": false,
+          "editor.formatOnSave": true
         },
         "dbt.enableNewLineagePanel": true
       },
       "extensions": [
-        "dorzey.vscode-sqlfluff",
-        "esbenp.prettier-vscode",
-        "innoverio.vscode-dbt-power-user",
-        "snowflake.snowflake-vsc"
+        "innoverio.vscode-dbt-power-user"
       ]
     }
   },
