@@ -22,11 +22,15 @@
         },
         "[jinja-sql]": {
           "editor.defaultFormatter": "innoverio.vscode-dbt-power-user",
-          "editor.tabSize": 2,
+          "editor.tabSize": 4,
           "editor.insertSpaces": true,
           "editor.detectIndentation": false,
           "editor.formatOnSave": true
         },
+        "dbt.sqlFmtAdditionalParams": [
+          "--line-length",
+          "176"
+        ],
         "dbt.enableNewLineagePanel": true
       },
       "extensions": [
